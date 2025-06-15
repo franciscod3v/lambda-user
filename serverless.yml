@@ -1,0 +1,84 @@
+service: user-service
+frameworkVersion: "4"
+
+provider:
+  name: aws
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  environment:
+    DYNAMO_TABLE: user_management
+    SQS_QUEUE_NAME: queue_users
+    SNS_TOPIC_ARN: arn:aws:sns:us-east-1:648078772415:sns_users
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:DeleteItem
+            - dynamodb:UpdateItem
+            - sqs:SendMessage
+            - sqs:GetQueueUrl
+            - sns:Publish
+          Resource:
+            - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.DYNAMO_TABLE}
+            - arn:aws:sqs:${self:provider.region}:648078772415:queue_users
+            - arn:aws:sns:${self:provider.region}:648078772415:sns_users
+
+package:
+  individually: true
+
+functions:
+  createUser:
+    handler: com.pragma.app.createuser.CreateUserHandler
+    runtime: java21
+    package:
+      artifact: user-java/target/user-java-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: /users
+          method: post
+
+  getUser:
+    handler: com.pragma.app.getuser.GetUserHandler
+    runtime: java21
+    package:
+      artifact: user-java/target/user-java-1.0-SNAPSHOT.jar
+    events:
+      - http:
+          path: /users/{id}
+          method: get
+
+  deleteUser:
+    handler: user-node/deleteUserHandler.deleteUserHandler
+    runtime: nodejs20.x
+    package:
+      include:
+        - user-node/deleteUserHandler.js
+    events:
+      - http:
+          path: /users/{id}
+          method: delete
+
+  updateUser:
+    handler: user-node/updateUserHandler.updateUserHandler
+    runtime: nodejs20.x
+    package:
+      include:
+        - user-node/updateUserHandler.js
+    events:
+      - http:
+          path: /users/{id}
+          method: put
+
+  sendMessage:
+    handler: user-node/sendMessageHandler.sendMessageHandler
+    runtime: nodejs20.x
+    package:
+      include:
+        - user-node/sendMessageHandler.js
+    events:
+      - sqs:
+          arn: arn:aws:sqs:us-east-1:648078772415:queue_users
