@@ -1,10 +1,10 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBDocumentClient, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(client);
 
-export const updateUserHandler = async (event) => {
+async function updateUserHandler(event) {
   const { id } = event.pathParameters || {};
 
   if (!id) {
@@ -71,4 +71,6 @@ export const updateUserHandler = async (event) => {
       body: JSON.stringify({ error: "Internal server error" }),
     };
   }
-};
+}
+
+module.exports = { updateUserHandler };

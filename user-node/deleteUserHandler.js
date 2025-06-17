@@ -1,10 +1,12 @@
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, DeleteCommand } from "@aws-sdk/lib-dynamodb";
+// deleteUserHandler.js (CommonJS)
+
+const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { DynamoDBDocumentClient, DeleteCommand } = require("@aws-sdk/lib-dynamodb");
 
 const client = new DynamoDBClient({ region: process.env.AWS_REGION });
 const docClient = DynamoDBDocumentClient.from(client);
 
-export const deleteUserHandler = async (event) => {
+async function deleteUserHandler(event) {
   const { id } = event.pathParameters || {};
 
   if (!id) {
@@ -34,4 +36,6 @@ export const deleteUserHandler = async (event) => {
       body: JSON.stringify({ error: "Internal server error" }),
     };
   }
-};
+}
+
+module.exports = { deleteUserHandler };

@@ -1,0 +1,397 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "Infraestructura para user-service - instancia 2: Lambdas, SQS, DynamoDB, SNS, API Gateway con proxy integration. El bucket de artifacts debe existir previamente."
+
+Parameters:
+  CodeBucket:
+    Type: String
+    Description: Nombre del bucket S3 donde ya subiste los artifacts (JAR de Java y ZIP de Node).
+
+Resources:
+  ### DynamoDB Table ###
+  UserManagementTable2:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: user_management-2
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  ### SNS Topic & Subscription ###
+  SnsUsersTopic2:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: sns_users-2
+
+  SnsUsersSubscription2:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: franciscod3v@gmail.com
+      TopicArn: !Ref SnsUsersTopic2
+
+  ### SQS Queue & Policy ###
+  QueueUsers2:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: queue_users-2
+
+  QueueUsersPolicy2:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref QueueUsers2
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: __owner_statement
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::648078772415:root
+            Action: 'SQS:*'
+            Resource: !GetAtt QueueUsers2.Arn
+          - Sid: AllowLambdaSendMessage2
+            Effect: Allow
+            Principal: '*'
+            Action: 'SQS:SendMessage'
+            Resource: !GetAtt QueueUsers2.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: arn:aws:lambda:us-east-1:648078772415:function:user-service-dev-createUser-2
+          - Sid: AllowLambdaSendMessageOriginal
+            Effect: Allow
+            Principal: '*'
+            Action: 'SQS:SendMessage'
+            Resource: arn:aws:sqs:us-east-1:648078772415:queue_users
+            Condition:
+              ArnEquals:
+                aws:SourceArn: arn:aws:lambda:us-east-1:648078772415:function:user-service-dev-createUser-2
+
+  ### IAM Roles per Lambda (with logging) ###
+  CreateUserRole2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CreateUserPolicy2
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - sqs:SendMessage
+                Resource:
+                  - !GetAtt UserManagementTable2.Arn
+                  - !GetAtt QueueUsers2.Arn
+                  - arn:aws:sqs:us-east-1:648078772415:queue_users
+
+  GetUserRole2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: GetUserPolicy2
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource: !GetAtt UserManagementTable2.Arn
+
+  UpdateUserRole2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: UpdateUserPolicy2
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt UserManagementTable2.Arn
+
+  DeleteUserRole2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DeleteUserPolicy2
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
+                Resource: !GetAtt UserManagementTable2.Arn
+
+  SendMessageRole2:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SendMessagePolicy2
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt QueueUsers2.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref SnsUsersTopic2
+
+  ### Lambda Functions ###
+  CreateUserFunction2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: user-service-dev-createUser-2
+      Runtime: java21
+      Handler: com.pragma.app.createuser.CreateUserHandler::handleRequest
+      Role: !GetAtt CreateUserRole2.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: user-java/target/user-java-1.0-SNAPSHOT.jar
+      Environment:
+        Variables:
+          DYNAMO_TABLE: user_management-2
+          SQS_QUEUE_NAME: !GetAtt QueueUsers2.QueueName
+          SNS_TOPIC_ARN: !Ref SnsUsersTopic2
+
+  GetUserFunction2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: user-service-dev-getUser-2
+      Runtime: java21
+      Handler: com.pragma.app.getuser.GetUserHandler::handleRequest
+      Role: !GetAtt GetUserRole2.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: user-java/target/user-java-1.0-SNAPSHOT.jar
+      Environment:
+        Variables:
+          DYNAMO_TABLE: user_management-2
+
+  UpdateUserFunction2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: user-service-dev-updateUser-2
+      Runtime: nodejs20.x
+      Handler: user-node/updateUserHandler.updateUserHandler
+      Role: !GetAtt UpdateUserRole2.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: user-node.zip
+      Environment:
+        Variables:
+          DYNAMO_TABLE: user_management-2
+
+  DeleteUserFunction2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: user-service-dev-deleteUser-2
+      Runtime: nodejs20.x
+      Handler: user-node/deleteUserHandler.deleteUserHandler
+      Role: !GetAtt DeleteUserRole2.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: user-node.zip
+      Environment:
+        Variables:
+          DYNAMO_TABLE: user_management-2
+
+  SendMessageFunction2:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: user-service-dev-sendMessage-2
+      Runtime: nodejs20.x
+      Handler: user-node/sendMessageHandler.sendMessageHandler
+      Role: !GetAtt SendMessageRole2.Arn
+      Timeout: 30
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: user-node.zip
+      Environment:
+        Variables:
+          TOPIC_ARN: !Ref SnsUsersTopic2
+
+  ### Event Source Mapping ###
+  SendMessageEventMapping2:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt QueueUsers2.Arn
+      FunctionName: !GetAtt SendMessageFunction2.Arn
+      BatchSize: 1
+      Enabled: true
+
+  ### API Gateway ###
+  RestApi2:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: user-service-api-2
+
+  RootResourceId:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi2
+      ParentId: !GetAtt RestApi2.RootResourceId
+      PathPart: users
+
+  UserIdResource2:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi2
+      ParentId: !Ref RootResourceId
+      PathPart: "{id}"
+
+  MethodPostUsers2:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi2
+      ResourceId: !Ref RootResourceId
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateUserFunction2.Arn}/invocations
+
+  MethodGetUser2:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi2
+      ResourceId: !Ref UserIdResource2
+      HttpMethod: GET
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 
+          - arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUserFunction2}/invocations
+          - { GetUserFunction2: !GetAtt GetUserFunction2.Arn }
+
+  MethodPutUser2:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi2
+      ResourceId: !Ref UserIdResource2
+      HttpMethod: PUT
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateUserFunction2.Arn}/invocations
+
+  MethodDeleteUser2:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi2
+      ResourceId: !Ref UserIdResource2
+      HttpMethod: DELETE
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteUserFunction2.Arn}/invocations
+
+  ### Deployment & Permissions ###
+  Deployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MethodPostUsers2
+      - MethodGetUser2
+      - MethodPutUser2
+      - MethodDeleteUser2
+    Properties:
+      RestApiId: !Ref RestApi2
+      StageName: prod
+
+  CreateUserPermission2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CreateUserFunction2.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi2}/*/POST/users
+
+  GetUserPermission2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt GetUserFunction2.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi2}/*/GET/users/*
+
+  UpdateUserPermission2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt UpdateUserFunction2.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi2}/*/PUT/users/*
+
+  DeleteUserPermission2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt DeleteUserFunction2.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi2}/*/DELETE/users/*
+
+Outputs:
+  ApiEndpoint:
+    Description: URL para acceso a un usuario
+    Value: !Sub https://${RestApi2}.execute-api.${AWS::Region}.amazonaws.com/prod/users/{id}
